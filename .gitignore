@@ -1,0 +1,27 @@
+# Terraform configuration files
+*.tfstate
+*.tfstate.*
+
+# Crash logs
+crash.log
+
+# Backup files
+*.tfstate.backup
+
+# Terraform CLI configuration files
+# .terraform/
+
+# AWS CLI configuration files
+.aws/
+
+# IDE and editor files
+.idea/
+.vscode/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Sensitive files
+*.tfvars
+*.tfvars.json
