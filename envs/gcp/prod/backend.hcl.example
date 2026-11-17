@@ -1,0 +1,2 @@
+bucket = "REPLACE-ME-tfstate-bucket"   # output of bootstrap/gcp
+prefix = "argocd-terraform/gcp/prod"

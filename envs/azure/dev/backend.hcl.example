@@ -1,0 +1,5 @@
+resource_group_name  = "argocd-terraform-state"   # outputs of bootstrap/azure
+storage_account_name = "REPLACEME"
+container_name       = "tfstate"
+key                  = "argocd-terraform/azure/dev.tfstate"
+use_azuread_auth     = true

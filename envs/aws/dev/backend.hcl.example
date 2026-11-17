@@ -1,0 +1,6 @@
+bucket       = "REPLACE-ME-tfstate-bucket"   # output of bootstrap/aws
+key          = "argocd-terraform/dev/terraform.tfstate"
+region       = "eu-west-1"
+encrypt      = true
+use_lockfile = true
+kms_key_id   = "alias/terraform-state" # optional: bootstrap KMS key

@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - envs/aws/dev
+          - envs/aws/prod
+          - envs/gcp/dev
+          - envs/gcp/prod
+          - envs/azure/dev
+          - envs/azure/prod
+          - envs/digitalocean/dev
+          - envs/digitalocean/prod
+          - bootstrap/aws
+          - bootstrap/gcp
+          - bootstrap/azure
+          - bootstrap/digitalocean
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+      - name: fmt
+        run: terraform fmt -check -recursive
+      - name: validate
+        working-directory: ${{ matrix.dir }}
+        run: |
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+      - name: tflint
+        working-directory: ${{ matrix.dir }}
+        run: |
+          tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+          tflint --config "$GITHUB_WORKSPACE/.tflint.hcl" --call-module-type=local
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: trivy config scan (Terraform + Kubernetes)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: kubeconform (every cloud overlay)
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          for overlay in argocd/app/overlays/*/; do
+            echo "== $overlay"
+            kubectl kustomize "$overlay" | ./kubeconform -strict -summary -kubernetes-version 1.35.0 -
+          done
