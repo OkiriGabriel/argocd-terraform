@@ -1,0 +1,8 @@
+# Accepted findings. Each entry needs a reason.
+
+# The Argo CD UI and the sample nginx Service are internet-facing NLBs by
+# design; access to Argo CD is limited with loadBalancerSourceRanges.
+# The EKS public endpoint is limited to admin_cidrs (0.0.0.0/0 is rejected by
+# variable validation), which trivy cannot see through variables.
+AVD-AWS-0040
+AVD-AWS-0041

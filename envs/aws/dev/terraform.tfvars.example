@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (git-ignored) and edit.
+admin_cidrs = ["203.0.113.10/32"]
+
+# cluster_admin_principal_arns = [
+#   "arn:aws:iam::123456789012:role/AWSReservedSSO_AdministratorAccess_abc123",
+# ]

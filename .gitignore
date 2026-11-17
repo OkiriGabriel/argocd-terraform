@@ -11,6 +11,12 @@ override.tf.json
 *_override.tf.json
 *.tfvars
 *.tfvars.json
+!*.tfvars.example
+
+# Backend settings are per-account; commit only the .example files
+backend.hcl
+*.tfplan
+tfplan
 
 # AWS
 .aws/
