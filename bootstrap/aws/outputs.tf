@@ -1,5 +1,5 @@
 output "bucket_name" {
-  description = "Use as `bucket` in dev/backend.hcl and prod/backend.hcl."
+  description = "Use as `bucket` in envs/aws/*/backend.hcl."
   value       = aws_s3_bucket.state.id
 }
 

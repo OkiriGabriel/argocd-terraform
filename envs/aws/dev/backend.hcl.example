@@ -1,4 +1,4 @@
-bucket       = "REPLACE-ME-tfstate-bucket"   # output of bootstrap/state-backend
+bucket       = "REPLACE-ME-tfstate-bucket"   # output of bootstrap/aws
 key          = "argocd-terraform/dev/terraform.tfstate"
 region       = "eu-west-1"
 encrypt      = true

@@ -26,3 +26,15 @@ variable "legacy_control_plane_public_subnets" {
   type        = bool
   default     = false
 }
+
+variable "gitops_repo_url" {
+  description = "Git repository Argo CD syncs the sample app from."
+  type        = string
+  default     = "https://github.com/OkiriGabriel/argocd-terraform.git"
+}
+
+variable "gitops_revision" {
+  description = "Branch, tag or commit Argo CD tracks."
+  type        = string
+  default     = "main"
+}

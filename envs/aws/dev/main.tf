@@ -7,7 +7,7 @@ locals {
 }
 
 module "eks" {
-  source = "../modules/eks"
+  source = "../../../modules/eks"
 
   cluster_name       = "argocd-dev"
   kubernetes_version = "1.35"
@@ -35,12 +35,22 @@ module "eks" {
 }
 
 module "argocd" {
-  source = "../modules/argocd"
+  source = "../../../modules/argocd"
 
   chart_version     = "10.18.0"
   high_availability = false
-  server_exposure   = "internet-nlb"
+  cloud             = "aws"
+  server_exposure   = "internet"
   allowed_cidrs     = var.admin_cidrs
+
+  bootstrap_app = {
+    name                  = "sample-apps"
+    application_name      = "nginx-app"
+    repo_url              = var.gitops_repo_url
+    revision              = var.gitops_revision
+    path                  = "argocd/app/overlays/aws"
+    destination_namespace = "nginx"
+  }
 
   # Argo CD must come up after nodes and CoreDNS, and be removed before them.
   depends_on = [module.eks]

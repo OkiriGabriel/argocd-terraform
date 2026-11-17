@@ -1,12 +1,14 @@
 # Migrating from the `eks-argocd` module
 
-This guide covers a cluster that was **already applied** with the old layout (commit `83281ae` or earlier: a single `modules/eks-argocd` module, Terraform state on local disk). If you are deploying fresh, skip this file and follow the README.
+This guide covers an **AWS** cluster that was **already applied** with the old layout (commit `83281ae` or earlier: a single `modules/eks-argocd` module, Terraform state on local disk). If you are deploying fresh (on any cloud), skip this file and follow the README.
+
+The environment folders moved from `dev/` and `prod/` to `envs/aws/dev` and `envs/aws/prod`. Only the folder moved; resource addresses and the state key are unchanged, so no state operations are needed for that move.
 
 ## What changed
 
 | Area | Before | After |
 | --- | --- | --- |
-| Module layout | One `eks-argocd` module that also configured its own `helm`/`kubernetes` providers | `modules/eks` and `modules/argocd`; providers are configured once in `dev/` and `prod/` |
+| Module layout | One `eks-argocd` module that also configured its own `helm`/`kubernetes` providers | `modules/eks` and `modules/argocd`; providers are configured once per environment root |
 | Providers | aws 5.x, helm 2.x, kubernetes 2.x | aws 6.x, helm 3.x, kubernetes 3.x |
 | Terraform | >= 1.5 | >= 1.10 (needed for S3 native locking) |
 | State | Local `terraform.tfstate` | S3, versioned, KMS-encrypted, `use_lockfile` locking (no DynamoDB) |
@@ -19,10 +21,12 @@ This guide covers a cluster that was **already applied** with the old layout (co
 | Nodes | Default launch template | IMDSv2 only, hop limit 1, encrypted gp3, SSM instead of SSH, auto-repair |
 | Node role | `AmazonEC2ContainerRegistryReadOnly`, `AmazonEKS_CNI_Policy` | `AmazonEC2ContainerRegistryPullOnly`, no CNI policy |
 | Argo CD chart | 10.9.0 (v3.5), `set` blocks | 10.18.0 (v3.6.1), values via `yamlencode`, atomic upgrades |
-| Argo CD exposure | Public NLB open to everyone | NLB limited to `admin_cidrs` |
+| Argo CD exposure | Public NLB open to everyone | NLB limited to `admin_cidrs` (`server_exposure = "internet"`) |
+| GitOps bootstrap | `kubectl apply` of an Application | Terraform-managed AppProject + Application (`argocd-apps` chart) |
+| Folders | `dev/`, `prod/` | `envs/aws/dev`, `envs/aws/prod` |
 | Sample app | `default` namespace, root nginx, `default` project | `nginx` namespace (PSA restricted), non-root nginx, scoped `AppProject` |
 
-`dev/moved.tf` and `prod/moved.tf` map every old resource address to its new one, so the refactor itself does not destroy anything. The steps below handle the parts `moved` blocks cannot cover.
+`envs/aws/dev/moved.tf` and `envs/aws/prod/moved.tf` map every old resource address to its new one, so the refactor itself does not destroy anything. The steps below handle the parts `moved` blocks cannot cover.
 
 ## Before you start
 
@@ -33,8 +37,8 @@ This guide covers a cluster that was **already applied** with the old layout (co
 ## 1. Back up state
 
 ```bash
-cd dev
-terraform state pull > ../dev-state-backup-$(date +%Y%m%d).json
+cd envs/aws/dev
+terraform state pull > ~/argocd-dev-state-backup-$(date +%Y%m%d).json
 ```
 
 Keep this file somewhere safe and **out of git**; it contains secrets.
@@ -42,12 +46,12 @@ Keep this file somewhere safe and **out of git**; it contains secrets.
 ## 2. Create the state bucket and move state into it
 
 ```bash
-cd ../bootstrap/state-backend
+cd ../../../bootstrap/aws
 cp terraform.tfvars.example terraform.tfvars   # set a globally unique bucket_name
 terraform init
 terraform apply
 
-cd ../../dev
+cd ../../envs/aws/dev
 cp backend.hcl.example backend.hcl             # set bucket to the output above
 terraform init -migrate-state -upgrade -backend-config=backend.hcl
 ```
@@ -56,7 +60,7 @@ Answer `yes` when Terraform asks to copy the existing state to S3. `-upgrade` pu
 
 ## 3. Pin the existing cluster's shape
 
-The new defaults are for new clusters. For an existing one, edit `dev/main.tf` (or `prod/main.tf`) for this migration so nothing gets rebuilt:
+The new defaults are for new clusters. For an existing one, edit `envs/aws/dev/main.tf` (or `envs/aws/prod/main.tf`) for this migration so nothing gets rebuilt:
 
 ```hcl
 module "eks" {
@@ -161,32 +165,29 @@ EKS moves one minor version at a time. For each step:
 
 Once the cluster is on a version that is still in standard support (1.35 or later; 1.34 leaves standard support on 2026-12-02), remove the `support_type = "EXTENDED"` line so the default `STANDARD` applies. With `STANDARD`, AWS upgrades the cluster automatically when standard support ends, instead of billing extended support.
 
-## 9. Move the sample app
+## 9. Sample app
 
-```bash
-kubectl apply -f ../argocd/bootstrap/project.yaml
-kubectl apply -f ../argocd/bootstrap/application.yaml
-```
+Terraform now creates the `sample-apps` AppProject and the `nginx-app` Application through the `argocd-apps` chart (`helm_release.bootstrap`). It takes ownership of an existing `nginx-app` Application created earlier with `kubectl`, then points it at `argocd/app/overlays/aws` in the `nginx` namespace. Argo CD creates the new resources there and prunes the old ones in `default`. The nginx Service gets a **new load balancer hostname**.
 
-The Application now targets the `nginx` namespace in the `sample-apps` project. Argo CD creates the new resources there and prunes the old ones in `default`. The nginx Service gets a **new load balancer hostname**.
+Nothing to run by hand. Check with `kubectl -n argocd get applications`.
 
 ## 10. Clean up
 
-- After **every** environment has been applied once with this version, delete `dev/moved.tf` and `prod/moved.tf`.
-- Delete the local `terraform.tfstate*` files left in `dev/` and `prod/` once the S3 state is confirmed (`terraform state list` works).
+- After **every** environment has been applied once with this version, delete `envs/aws/dev/moved.tf` and `envs/aws/prod/moved.tf`.
+- Delete the local `terraform.tfstate*` files left in `envs/aws/dev/` and `envs/aws/prod/` once the S3 state is confirmed (`terraform state list` works).
 - Change the Argo CD admin password, then delete `argocd-initial-admin-secret`.
 
 ## Moving to the new network layout
 
 The new defaults use `/19` private subnets (8,190 IPs each) and, in prod, three AZs with a NAT gateway per AZ. Subnets cannot be resized, so getting there means a blue/green move:
 
-1. Copy `dev/` to a new root (for example `dev-v2/`) with a new `cluster_name`, a non-overlapping `vpc_cidr`, the default subnet lists, a new backend `key`, and no `moved.tf`.
-2. Apply it and point Argo CD there (apply the bootstrap manifests).
+1. Copy `envs/aws/dev/` to a new root (for example `envs/aws/dev-v2/`) with a new `cluster_name`, a non-overlapping `vpc_cidr`, the default subnet lists, a new backend `key`, and no `moved.tf`.
+2. Apply it; Terraform installs Argo CD and the bootstrap Application.
 3. Shift traffic/DNS to the new cluster's load balancers.
 4. Destroy the old root.
 
 ## Rolling back
 
 - Argo CD: `atomic = true` rolls back a failed chart upgrade automatically. To go back on purpose, set `chart_version = "10.9.0"` and apply.
-- State: restore with `terraform state push ../dev-state-backup-YYYYMMDD.json`. S3 versioning also keeps earlier state objects.
+- State: restore with `terraform state push ~/argocd-dev-state-backup-YYYYMMDD.json`. S3 versioning also keeps earlier state objects.
 - Secrets encryption and the `API` authentication mode cannot be reverted. Every other cluster setting can be changed back.
